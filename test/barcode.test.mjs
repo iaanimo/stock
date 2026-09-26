@@ -22,7 +22,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PORT = 9222
-const APP = 'http://localhost:8000/'
+// 可以传一个网址进去测线上部署：node test/barcode.test.mjs https://iaanimo.github.io/stock/
+const APP = process.argv.slice(2).find(a => a.startsWith('http')) || 'http://localhost:8000/'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(HERE, 'fixtures')
 
@@ -43,7 +44,7 @@ if (!cases.length) {
 // CDP 连接
 // ——————————————————————————————————————
 async function newTab() {
-  const r = await fetch(`http://127.0.0.1:${PORT}/json/new?${APP}`, { method: 'PUT' })
+  const r = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: 'PUT' })
   return r.json()
 }
 
@@ -88,7 +89,24 @@ const tab = await newTab()
 const cdp = connect(tab.webSocketDebuggerUrl)
 await cdp.ready
 await cdp.send('Runtime.enable')
-await new Promise(r => setTimeout(r, 2000))
+await cdp.send('Page.enable')
+await cdp.send('Page.navigate', { url: APP })
+
+// 等页面真的加载完 —— 光 sleep 一个固定时间是靠不住的（尤其是线上地址）
+let loaded = false
+for (let i = 0; i < 40; i++) {
+  await new Promise(r => setTimeout(r, 500))
+  try {
+    if (await cdp.eval(`document.readyState === 'complete' && !!document.head && document.title.length > 0`)) {
+      loaded = true; break
+    }
+  } catch (e) { /* 导航中 eval 会失败，忽略 */ }
+}
+if (!loaded) {
+  console.log('页面没加载出来，当前地址：' + await cdp.eval('location.href').catch(() => '（读不到）'))
+  process.exit(1)
+}
+await new Promise(r => setTimeout(r, 1500))   // 再给 boot() 一点时间灌种子数据
 
 const native = await cdp.eval(`'BarcodeDetector' in window`)
 console.log('\n环境')
@@ -141,6 +159,7 @@ const script = `(async () => {
     out.cases.push(rec)
   }
 
+  out.origin = location.origin
   out.wasmSources = performance.getEntriesByType('resource')
     .map(e => e.name).filter(n => n.includes('.wasm'))
 
@@ -174,9 +193,11 @@ for (const c of result.cases) {
     '期望 "' + c.expect + '"，实际 ' + JSON.stringify(c.decoded))
 }
 
-console.log('\nwasm 加载来源（必须全在 localhost，走 CDN 断网就废）')
+console.log('\nwasm 加载来源（必须本站，走 jsdelivr CDN 的话断网就废）')
+console.log('  站点 origin：' + result.origin)
 for (const src of result.wasmSources) {
-  ok(src.replace('http://localhost:8000/', ''), src.startsWith('http://localhost:8000/'), '不在本机！')
+  const local = src.startsWith(result.origin + '/')
+  ok(src.replace(result.origin + '/', ''), local, '不在本站！实际是 ' + src)
 }
 if (!result.wasmSources.length) { fail++; console.log('  FAIL 一个 .wasm 都没加载 → 解码根本没跑起来') }
 
