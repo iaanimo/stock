@@ -111,11 +111,25 @@ ok('识别器已就绪（原生或 polyfill）', st.detectorReady)
 ok('没有报错提示', !st.toast || !/打不开|不支持/.test(st.toast), st.toast)
 
 // —— 关掉，确认能正常退出（摄像头要释放）——
+// ⚠️ 取消之前先把 stream 抓到手：覆盖层一移除，video 元素就没了，
+//    到时候再查"还有没有活着的 track"是查不到的（原来只查了 S.scanner ——
+//    那是个句柄变量，跟 MediaStreamTrack 没有任何关系，等于没测）。
+await cdp.eval(`(() => {
+  const v = document.querySelector('.scanlayer video')
+  window.__stream = (v && v.srcObject) || null
+  return !!window.__stream
+})()`)
 await cdp.eval(`document.getElementById('scCancel') && document.getElementById('scCancel').click()`)
-await new Promise(r => setTimeout(r, 600))
+await new Promise(r => setTimeout(r, 800))
 ok('点取消能关掉扫码界面', await cdp.eval(`!document.querySelector('.scanlayer')`))
-ok('摄像头已释放（没有残留的 track）',
-  await cdp.eval(`!window.S || !S.scanner`))
+
+const liveTracks = await cdp.eval(`(() => {
+  const s = window.__stream
+  if (!s) return -1
+  return s.getTracks().filter(t => t.readyState === 'live').length
+})()`)
+ok('摄像头真的释放了（原 stream 里的 track 全部 ended）', liveTracks === 0,
+  liveTracks < 0 ? '没抓到 stream，测不了' : '还有 ' + liveTracks + ' 条活着的 track')
 
 console.log('\n控制台错误：' + (cdp.logs.length ? '' : '无'))
 cdp.logs.forEach(l => console.log('   ✗ ' + l))

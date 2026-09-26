@@ -1,16 +1,21 @@
 // sw.js —— Service Worker：把页面本身缓存下来，断网也能打开
 // 数据不走这里（数据在 IndexedDB），这里只管外壳（html/css/js）
 
-const CACHE = 'stock-web-v2'
+const CACHE = 'stock-web-v5'
 
 const ASSETS = [
   './',
   'index.html',
   'manifest.json',
   'css/app.css',
+  'js/config.js',
   'js/db.js',
   'js/logic.js',
   'js/scan.js',
+  'js/tools.js',
+  'js/agent.js',
+  'js/ai.js',
+  'js/patrol.js',
   'js/app.js',
   // 扫码兜底：iPhone 上没有原生 BarcodeDetector，靠这两个跑 WASM 解码。
   // 那 1.1MB 的 wasm 也一并预缓存 —— 不预缓存的话，地下室断网 + 第一次扫码 = 扫不了。

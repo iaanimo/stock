@@ -3,9 +3,9 @@
 // 联网后的回传由 sync() 负责 —— demo 阶段是模拟，接后端时只改那一个函数。
 
 const DB_NAME = 'stock_web'
-const DB_VER = 1
+const DB_VER = 2
 
-// stores: items 商品 / locations 货位 / moves 流水
+// stores: items 商品 / locations 货位 / moves 流水 / proposals AI 提案（只追加）
 let _db = null
 
 function open() {
@@ -24,6 +24,13 @@ function open() {
         const s = db.createObjectStore('moves', { keyPath: 'id' })
         s.createIndex('itemId', 'itemId')
         s.createIndex('locationId', 'locationId')
+      }
+      if (!db.objectStoreNames.contains('proposals')) {
+        // AI 起草、人来确认的提案表。只追加语义：写入后不许改历史，
+        // 状态流转用新版本记录（P2 送货单解析启用；形状先定死在这里）：
+        // { id, kind, source, model, utterance, tool_calls, lines,
+        //   status, created_by, changes, created_at }
+        db.createObjectStore('proposals', { keyPath: 'id' })
       }
     }
     req.onsuccess = () => { _db = req.result; resolve(_db) }
@@ -139,6 +146,7 @@ async function ensureSeed() {
         locationId: loc,
         qty: qty,
         photos: [],
+        by: '期初',            // 操作人：谁经手的这条流水
         ts: SEED_TS + (++n) * 1000,
         synced: 1
       })
@@ -152,14 +160,19 @@ async function ensureSeed() {
 
 // 演示用：清空重来
 async function reset() {
+  // proposals 也要清：它是审计台账，留着会指向已经被清掉的商品/货位，
+  // 在待办箱里点「批准」就能落出查不到商品的幽灵流水。
   await clear('items')
   await clear('locations')
   await clear('moves')
+  await clear('proposals')
   await ensureSeed()
 }
 
-// 建一条流水
-function makeMove(type, itemId, locationId, qty, photos) {
+// 建一条流水（id 是幂等键：多机离线各记各的，回传时服务端按 id 去重）
+// by = operator（历史归因）；counterparty = 交易对手（供应商/客户/承运商）。
+// v1 的老流水没有这两个字段，不回填，读取处一律 (m.operator || m.by || '') 兜底，不伪造。
+function makeMove(type, itemId, locationId, qty, photos, by, counterparty) {
   return {
     id: newMoveId(),
     type: type,
@@ -167,6 +180,9 @@ function makeMove(type, itemId, locationId, qty, photos) {
     locationId: locationId,
     qty: qty,
     photos: photos || [],
+    by: by || '',                  // 兼容 v1 老数据的显示字段（= operator）
+    operator: by || '',            // 操作人：谁经手的（留痕归一，新代码读这个）
+    counterparty: counterparty || '',  // 交易对手：跟谁发生的这笔账（可空）
     ts: Date.now(),
     synced: 0               // 0 = 还没回传，等联网了同步
   }
@@ -187,4 +203,49 @@ async function sync(moves) {
   return pending.length
 }
 
-const DB = { open, getAll, put, clear, bulkPut, ensureSeed, reset, makeMove, sync, newMoveId }
+// ——————————————————————————————————————————————
+// 一次事务里同时写「提案状态」和「流水」
+//
+// 为什么不能一条一条 put：待办箱批准落库是**改库存**的动作。中间挂掉
+// （关页面、配额满、崩溃）会留下半套状态：
+//   · 流水写了、提案还开着 → 用户再点一次就翻倍（原来的顺序就是这个，实测会中招）
+//   · 提案批了、流水没写   → 账少了，而且状态是终态、改不回来
+// IndexedDB 本身支持跨表事务，用它把这件事变成原子的：要么都成，要么都不成。
+// ——————————————————————————————————————————————
+function applyDecision(proposal, moves) {
+  return open().then(db => new Promise((resolve, reject) => {
+    const t = db.transaction(['proposals', 'moves'], 'readwrite')
+    t.objectStore('proposals').put(proposal)
+    const ms = t.objectStore('moves')
+    moves.forEach(m => ms.put(m))
+    t.oncomplete = () => resolve(moves.length)
+    t.onerror = () => reject(t.error || new Error('写入失败'))
+    t.onabort = () => reject(t.error || new Error('事务被中止'))
+  }))
+}
+
+const ALL_STORES = ['items', 'locations', 'moves', 'proposals']
+
+// 整库替换（导入备份用）：四张表在**一个事务**里清空 + 重写。
+//
+// 为什么不能一条一条 clear/put：导入是「先清后写」，中途失败（配额满、浏览器被杀）
+// 会让**新旧两份数据同时消失**，而原来只弹一句「导入失败」。放进一个事务里，
+// 失败自动回滚，库要么是旧的、要么是新的。
+function replaceAll(data) {
+  return open().then(db => new Promise((resolve, reject) => {
+    const t = db.transaction(ALL_STORES, 'readwrite')
+    ALL_STORES.forEach(s => t.objectStore(s).clear())
+    ;(data.items || []).forEach(o => t.objectStore('items').put(o))
+    ;(data.locations || []).forEach(o => t.objectStore('locations').put(o))
+    ;(data.moves || []).forEach(o => t.objectStore('moves').put(o))
+    ;(data.proposals || []).forEach(o => t.objectStore('proposals').put(o))
+    t.oncomplete = () => resolve(true)
+    t.onerror = () => reject(t.error || new Error('写入失败'))
+    t.onabort = () => reject(t.error || new Error('事务被中止（已回滚，原数据没动）'))
+  }))
+}
+
+const DB = {
+  open, getAll, put, clear, bulkPut, ensureSeed, reset, makeMove, sync, newMoveId,
+  applyDecision, replaceAll
+}

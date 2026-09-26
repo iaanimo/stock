@@ -9,12 +9,15 @@ import socket
 import os
 import sys
 
+from whitelist import allowed
+
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
     pass
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+_args = [a for a in sys.argv[1:] if not a.startswith('-')]
+PORT = int(_args[0]) if _args else 8000
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -35,6 +38,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # 关掉缓存，改完代码刷新就生效，不用手动清
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
+
+    def send_head(self):
+        # 只发白名单里的文件。
+        # ⚠️ 默认的 SimpleHTTPRequestHandler 会把**整个项目目录**端出去 ——
+        #    实测 curl http://localhost:8000/.env 能直接拿到 API key 明文。
+        #    详见 whitelist.py 里的说明。
+        if not allowed(self.path):
+            self.send_error(404)
+            return None
+        return super().send_head()
 
     def log_message(self, fmt, *args):
         pass          # 静音，控制台干净点
@@ -80,14 +93,24 @@ if port_in_use(PORT):
 
 socketserver.TCPServer.allow_reuse_address = True
 
-with socketserver.TCPServer(('0.0.0.0', PORT), Handler) as httpd:
+# 默认只监听本机。这是纯静态服务、没有用户体系，开放到局域网等于
+# 让同一个 WiFi 下任何人都能翻你的项目目录（虽然白名单挡住了 .env 这类，
+# 但没必要开这个口子）。要手机直连看页面再加 --lan。
+LAN = '--lan' in sys.argv
+HOST = '0.0.0.0' if LAN else '127.0.0.1'
+
+with socketserver.TCPServer((HOST, PORT), Handler) as httpd:
     print('')
     print('  桌面（本机）    http://localhost:%d' % PORT)
-    print('  手机（同一个WiFi）http://%s:%d' % (lan_ip(), PORT))
+    if LAN:
+        print('  局域网          http://%s:%d' % (lan_ip(), PORT))
+        print('                  （你加了 --lan，同 WiFi 的人也能打开）')
+    else:
+        print('  局域网          未开放（默认只监听本机）')
     print('')
     print('  注意：手机上要用摄像头扫码，http 页面浏览器不给权限，必须 HTTPS。')
     print('        本机 localhost 不受这个限制，桌面测没问题。')
-    print('        手机测的话用 Cloudflare 隧道：')
+    print('        手机测的话用 Cloudflare 隧道（连的是 localhost，所以不用 --lan）：')
     print('          cloudflared tunnel --url http://localhost:%d' % PORT)
     print('')
     print('  Ctrl+C 停止')

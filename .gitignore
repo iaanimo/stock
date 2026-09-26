@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 
+# AI 的 key 只放本机，绝不进仓库
+.env
+
 # 编辑器 / 系统
 .vscode/
 .idea/
