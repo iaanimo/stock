@@ -75,6 +75,17 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log('  FAIL ' + name + (extra ? '  → ' + extra : '')) }
 }
 
+// 等回答完成：以前写死等 1.5s 只够本地规则；现在 8000 是 app.py 真实代理，
+// 流式回复要 3~10s，改轮询（跟 proposals/ui 测试一个套路），最多等 25s。
+async function waitAnswer() {
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 500))
+    const t = await cdp.eval(`document.getElementById('askOut').textContent`)
+    if (/回答来源/.test(t)) return t
+  }
+  return await cdp.eval(`document.getElementById('askOut').textContent`)
+}
+
 const movesBefore = await cdp.eval('S.moves.length')
 
 console.log('\nAI 问答页')
@@ -89,8 +100,7 @@ await cdp.eval(`(() => {
   i.value = '轴承还剩多少'
   document.getElementById('askGo').click()
 })()`)
-await new Promise(r => setTimeout(r, 1500))
-const out1 = await cdp.eval(`document.getElementById('askOut').textContent`)
+const out1 = await waitAnswer()
 ok('「轴承还剩多少」答出合计 156', /156/.test(out1), out1.slice(0, 120))
 ok('三种轴承都列出来', /6204/.test(out1) && /6205/.test(out1) && /6308/.test(out1))
 ok('标注了回答来源', /回答来源/.test(out1))
@@ -102,9 +112,8 @@ await cdp.eval(`(() => {
   i.value = '6204 在哪个货位'
   document.getElementById('askGo').click()
 })()`)
-await new Promise(r => setTimeout(r, 1500))
-const out2 = await cdp.eval(`document.getElementById('askOut').textContent`)
-ok('「6204 在哪」答出货位分布', /A区2排1层 50/.test(out2), out2.slice(0, 120))
+const out2 = await waitAnswer()
+ok('「6204 在哪」答出货位分布', /A区2排1层[：:]?\s*50/.test(out2), out2.slice(0, 120))
 
 // —— 只读保证 ——
 const movesAfter = await cdp.eval('S.moves.length')
