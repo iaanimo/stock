@@ -43,7 +43,7 @@ self.addEventListener('activate', e => {
 //
 // 为什么不用更常见的「缓存优先」：那个在有网时也吐旧文件，改完代码刷新看不到变化，
 // 调试时会以为是代码坏了。网络优先 = 有网永远最新、断网照样能打开。
-// 真上线交付、不再频繁改代码时，可以换回缓存优先（加载更快）。
+// 稳定下来、不再频繁改代码时，可以换回缓存优先（加载更快）。
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
 

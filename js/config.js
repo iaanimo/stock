@@ -5,7 +5,7 @@
 //   'demo' —— 直连 CONFIG.llmEndpoint + llmKey（OpenAI 兼容），key 只放自己机器/演示环境
 // 兜底：两条路都没配或调用失败 → 本地规则回答（Logic.askLocal），断网也能用。
 //
-// 商用切换 = 改这里 + 部署一个转发代理，业务代码一行不动（这是接口的验收标准）。
+// 换运行环境 = 改这里 + 按需部署一个转发代理，业务代码一行不动（这是接口的验收标准）。
 // localStorage 里的值优先于默认值（界面上的「AI 连接设置」写的就是它）。
 
 const CONFIG_DEFAULTS = {

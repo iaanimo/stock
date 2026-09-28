@@ -1,5 +1,7 @@
 # stock-web —— 仓库管理
 
+![tests](https://github.com/iaanimo/stock/actions/workflows/tests.yml/badge.svg)
+
 仓库管理系统：手机扫码收发货、货位定位、盘点比对、AI 问答与巡检、断网可用。
 
 **数据全部存在浏览器本机（IndexedDB）** —— 扫码 / 收货 / 出库 / 盘点这些核心功能不需要后端。
@@ -77,6 +79,7 @@ test/barcode.test.mjs  真解码验证 + fixtures/ 里的条码图片
 test/scanflow.test.mjs 扫码动线（假摄像头，含 track 释放验证）
 test/ask.test.mjs      AI 问答页冒烟 + 「全程只读」硬保证
 test/proposals.test.mjs 待办箱全链路（巡检→调查→改提案→批准落库→审计留痕）
+test/no_secret.test.cjs 推送前密钥防泄漏自检（可传凭据文件做真值比对，值永不打印）
 ```
 
 ## 扫码走哪条路
@@ -95,7 +98,7 @@ test/proposals.test.mjs 待办箱全链路（巡检→调查→改提案→批�
 
 ## 自测
 
-**全套 = 238 项断言 / 9 层测试网**（2026-09-27 全绿，数字是实测的）：
+**全套 = 246 项断言 / 10 层测试网**（2026-09-27 全绿，数字是实测的；第 10 层传入凭据文件做真值比对时再 +7）：
 
 | 层 | 命令 | 项数 | 验什么 |
 |---|---|---|---|
@@ -108,13 +111,15 @@ test/proposals.test.mjs 待办箱全链路（巡检→调查→改提案→批�
 | 7 | `node test/ui.test.mjs` | 9 | 界面回归（**真实鼠标事件**）：改完数量后第一下点按钮不能失效、扫码等组件时点取消不能把摄像头留在开着 |
 | 8 | `node test/probe.mjs` | 11 | 渲染 + 三个主流程冒烟（可传网址验线上） |
 | 9 | `node test/proposals.test.mjs` | 32 | 待办箱全链路：自主巡检→调查工具循环→改提案→批准落库→审计留痕→拒绝存档→追问→去重→单据解析链路 |
+| 10 | `node test/no_secret.test.cjs` | 8 | **推送防泄漏**：待推送文件（git 追踪+未忽略）里不许有真密钥——形态扫描 sk-/GitHub token/AWS key/私钥块，外加把环境变量/凭据文件里的真值拿来逐字节比对（**值永不打印**）。`node test/no_secret.test.cjs <凭据文件>` 可加验真值，每条 +1 |
 
 ```bash
 node test/logic.test.cjs
 node test/agent.test.mjs
+node test/no_secret.test.cjs   # 推送前必跑：防止哪天顺手把 key 粘进代码
 ```
 
-1、2 层不依赖浏览器（node 直接跑）。logic.js 是纯函数所以能脱离浏览器测；db.js 用了 IndexedDB，测不了。
+1、2、10 层不依赖浏览器（node/python 直接跑）。logic.js 是纯函数所以能脱离浏览器测；db.js 用了 IndexedDB，测不了。
 （后缀是 `.cjs` 不是 `.js`——上层目录有 `"type":"module"` 的 package.json，`.js` 会被当成 ESM。）
 
 3–9 层用 CDP 连 headless Edge（先起探针再跑测试）。**scanflow 和 proposals 建议都带假摄像头参数**：
@@ -198,7 +203,7 @@ node test/proposals.test.mjs
 
 **4. AI 只读，且只有一个出入口（`js/ai.js` + `js/config.js`）**
 AI 拿到的工具全是查询（`Logic.toolbox` 包现有纯函数），写操作一条都没暴露给模型——问答页有测试钉死「全程只读」。
-换模型 / 转商用只改 `config.js`：demo 直连（key 只放本机）、prod 走服务端代理（key 不进前端），业务代码一行不动。
+换模型只改 `config.js`：`demo` 模式直连（key 只放本机）、`prod` 模式走服务端代理（key 不进前端），业务代码一行不动。
 没配 key、断网、模型抽风 → 自动落回 `Logic.askLocal` 本地规则回答，答案照样带真数字。
 回答附「工具调用记录」，AI 查过什么、拿的什么数，全部可审计。
 
@@ -213,9 +218,9 @@ LLM 只起草说明文字——没 key 用规则文案，判定结果永远一�
 ## 待办（按优先级）
 
 - [ ] **还没在真 iPhone 上跑过**：polyfill 那条路已在桌面浏览器上做过真解码验证（`test/barcode.test.mjs`），但它没在真实的 iOS Safari 上跑过。有机会拿真机确认一次
-- [ ] **真机演示前先预热**：线上首次解码要等 wasm 下载+编译（实测约 60 秒量级，本地 55ms）。手机第一次打开页面后缓存就装好了，但**别在现场才第一次打开**
+- [ ] **真机首次使用前先预热**：线上首次解码要等 wasm 下载+编译（实测约 60 秒量级，本地 55ms）。手机第一次打开页面后缓存就装好了，但**别等到要用的时候才第一次打开**
 - [ ] 扫码性能：polyfill 走 WASM + canvas，每帧约 10–70ms。真机上如果觉得卡，可以调大 `js/scan.js` 里 `setTimeout(tick, 300)` 的间隔
-- [ ] **AI 转发代理已就位（`app.py`）**：key 收服务端 `.env`、服务端注入系统提示词。商用交付还差**正式隧道 + 自己域名**（trycloudflare 官方定位是开发测试）；演示期直连自己的 key 没问题，但 key 不许进公开部署
+- [ ] **AI 转发代理已就位（`app.py`）**：key 收服务端 `.env`、服务端注入系统提示词。要长期挂公网还差**正式隧道 + 自定义域名**（trycloudflare 官方定位是开发测试）；临时用直连自己的 key 没问题，但 key 不许进公开部署
 - [x] **AI 单据解析**（2026-09-26 已落地）：粘贴送货单文本 → AI 抽取/规则解析 → 收货草稿提案 → 人工批准才落库。剩：**拍照 OCR 抽取入口**（照片现在只存证不过 OCR）
 - [ ] **真后端 + 多端同步**：现在 `sync()` 是模拟的。流水 `id` 已是幂等键（多机不撞号），服务端按它去重即可合并
 - [ ] **作废/反冲**：录错了怎么改？现在只能补反向流水，还没有"作废的是哪条"的引用关系
