@@ -32,6 +32,11 @@ const Patrol = {
       existing.push(p)
       fresh.push(p)
     }
+    // 立提案和 LLM 起草分开：提案一落库就先回调 onProposed 让界面看到，
+    // 起草在后面慢慢补——不让 LLM 的秒级延迟拖住「开 App 就有待办」
+    if (fresh.length && typeof o.onProposed === 'function') {
+      try { await o.onProposed(fresh) } catch (e) { /* 回调不挡巡检 */ }
+    }
     // LLM 只起草说明文字（有 key 才跑，失败就留规则文案）—— 永远不进判定
     if (fresh.length && Patrol.aiAvailable()) {
       for (const p of fresh) {

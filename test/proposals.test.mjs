@@ -85,8 +85,10 @@ await cdp.send('Runtime.enable')
 await until(cdp, `typeof Patrol !== 'undefined' && S.items.length > 0`, 8000)
 
 console.log('\n① 开 App 巡检自主跑（没点任何按钮）')
-const bootProps = await cdp.eval(`S.proposals.length`)
-eq('开 App 不点按钮就有待办（自主跑）', bootProps >= 1, true)
+// 自主巡检是异步的（app.js boot 里 fire-and-forget），带 LLM 起草时可能要几秒：
+// 这里等「待办真的进台账」再读，而不是抢跑读瞬时值（超时给足 20 秒）
+const bootProps = await until(cdp, `S.proposals.length`, 20000)
+eq('开 App 不点按钮就有待办（自主跑）', (bootProps || 0) >= 1, true)
 const homeCard = await cdp.eval(`!!document.querySelector('a[href="#proposals"]')`)
 eq('首页有待办箱卡片', homeCard, true)
 

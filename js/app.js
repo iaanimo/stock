@@ -1131,7 +1131,7 @@ const BIND = {
     const sweepBtn = document.getElementById('sweepBtn')
     if (sweepBtn) sweepBtn.onclick = async () => {
       toast('巡检中…')
-      const fresh = await Patrol.sweep()
+      const fresh = await Patrol.sweep({ onProposed: refresh })   // 立完提案就先亮出来，LLM 起草在后台补
       await refresh()
       toast(fresh.length ? `巡检完成：${fresh.length} 条新待办` : '巡检完成：没有新的异常')
     }
@@ -1268,11 +1268,15 @@ async function boot() {
   }
 
   // 巡检自主跑：开 App 就跑一遍四岗，按优先级进待办箱（按钮只是"再巡一次"）
-  Patrol.sweep().then(async fresh => {
-    if (!fresh.length) return
+  // 提案一立完就先刷待办箱（onProposed），LLM 起草完再刷一次（文案可能换）——界面不被起草拖着
+  const showProposals = async () => {
     S.proposals = await Patrol.list()
     const route = (location.hash || '#home').slice(1) || 'home'
     if (route === 'home' || route === 'proposals') render()
+  }
+  Patrol.sweep({ onProposed: showProposals }).then(async fresh => {
+    if (!fresh.length) return
+    await showProposals()
     toast(`巡检完成：${fresh.length} 条新待办`)
   }).catch(() => {})
 }
