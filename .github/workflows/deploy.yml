@@ -1,0 +1,47 @@
+name: deploy
+
+# 测试跑绿了才部署 —— 挂在 tests 工作流**完成之后**，而不是和它并行。
+# （workflow_run 在测试失败时也会触发，所以下面的 job 里显式挡了 conclusion != success）
+on:
+  workflow_run:
+    workflows: ["tests"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一次部署；排队而不是打断，避免部署到一半被取消。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      # 站点就是仓库根目录本身 —— 与原先的「从分支出」一致（根目录已有 .nojekyll），
+      # 所以换成 Actions 部署不会改变对外暴露的内容。
+      - name: 打包站点
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
