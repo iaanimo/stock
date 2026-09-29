@@ -29,7 +29,10 @@ jobs:
       - name: 安装 Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 必须是 22+：浏览器层的测试直接用全局 WebSocket 连 CDP，
+          # 而 Node 20 没有这个全局对象 —— 会在 test/*.test.mjs 的第一行就
+          # ReferenceError: WebSocket is not defined。本机是 24，所以本机测不出来。
+          node-version: "24"
 
       - name: 安装 Python
         uses: actions/setup-python@v5
