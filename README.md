@@ -98,20 +98,24 @@ test/no_secret.test.cjs 推送前密钥防泄漏自检（可传凭据文件做�
 
 ## 自测
 
-**全套 = 246 项断言 / 10 层测试网**（2026-09-27 全绿，数字是实测的；第 10 层传入凭据文件做真值比对时再 +7）：
+**全套 = 10 层测试网。**每层跑完自己会打「结果：N 通过」。
 
-| 层 | 命令 | 项数 | 验什么 |
-|---|---|---|---|
-| 1 | `python test/py_selftest.py` | 48 | **服务端安全边界**（零依赖，不用 pytest）：静态白名单 + 目录穿越/编码绕过、丢弃前端 system、工具配对校验、长度与条数上限、限流、提示词纪律 |
-| 2 | `node test/logic.test.cjs` | 80 | 业务纯函数：库存/搜索/推荐/拣货/盘点/CSV/问答兜底/备份 + 巡检四岗/提案生命周期/调查兜底/单据解析。**含 11 项备份校验**（坏数据必须被拒，否则 App 会变砖） |
-| 3 | `node test/agent.test.mjs` | 39 | agent 回路、工具白名单只读、防注入、降级链、流水留痕字段 |
-| 4 | `node test/ask.test.mjs` | 7 | AI 问答页冒烟 + 「问完流水一条不多」只读硬保证 |
-| 5 | `node test/barcode.test.mjs` | 4 | 条码真解码 + wasm 必须本站加载（不许 CDN） |
-| 6 | `node test/scanflow.test.mjs` | 8 | 扫码动线：假摄像头真的出图、**取消后原 stream 的 track 全部 ended** |
-| 7 | `node test/ui.test.mjs` | 9 | 界面回归（**真实鼠标事件**）：改完数量后第一下点按钮不能失效、扫码等组件时点取消不能把摄像头留在开着 |
-| 8 | `node test/probe.mjs` | 11 | 渲染 + 三个主流程冒烟（可传网址验线上） |
-| 9 | `node test/proposals.test.mjs` | 32 | 待办箱全链路：自主巡检→调查工具循环→改提案→批准落库→审计留痕→拒绝存档→追问→去重→单据解析链路 |
-| 10 | `node test/no_secret.test.cjs` | 8 | **推送防泄漏**：待推送文件（git 追踪+未忽略）里不许有真密钥——形态扫描 sk-/GitHub token/AWS key/私钥块，外加把环境变量/凭据文件里的真值拿来逐字节比对（**值永不打印**）。`node test/no_secret.test.cjs <凭据文件>` 可加验真值，每条 +1 |
+> **这里刻意不写死项数**：第 10 层是按本机环境变量里 KEY/TOKEN/SECRET 的个数动态生成的，
+> 总数本来就不是常数；而其余各层只要加一条断言就变。写死过一次，几天就漂了 ——
+> 与其维护一个会被逐字核对的假数，不如让数字从测试输出里来。
+
+| 层 | 命令 | 验什么 |
+|---|---|---|
+| 1 | `python test/py_selftest.py` | **服务端安全边界**（零依赖，不用 pytest）：静态白名单 + 目录穿越/编码绕过、丢弃前端 system、工具配对校验、长度与条数上限、限流、提示词纪律 |
+| 2 | `node test/logic.test.cjs` | 业务纯函数：库存/搜索/推荐/拣货/盘点/CSV/问答兜底/备份 + 巡检四岗/提案生命周期/调查兜底/单据解析。**含备份校验**（坏数据必须被拒，否则 App 会变砖） |
+| 3 | `node test/agent.test.mjs` | agent 回路、工具白名单只读、防注入、降级链、流水留痕字段 |
+| 4 | `node test/ask.test.mjs` | AI 问答页冒烟 + 「问完流水一条不多」只读硬保证 |
+| 5 | `node test/barcode.test.mjs` | 条码真解码 + wasm 必须本站加载（不许 CDN） |
+| 6 | `node test/scanflow.test.mjs` | 扫码动线：假摄像头真的出图、**取消后原 stream 的 track 全部 ended** |
+| 7 | `node test/ui.test.mjs` | 界面回归（**真实鼠标事件**）：改完数量后第一下点按钮不能失效、扫码等组件时点取消不能把摄像头留在开着 |
+| 8 | `node test/probe.mjs` | 渲染 + 三个主流程冒烟（可传网址验线上） |
+| 9 | `node test/proposals.test.mjs` | 待办箱全链路：自主巡检→调查工具循环→改提案→批准落库→审计留痕→拒绝存档→追问→去重→单据解析链路；**含两条回归**（追问写回不能冲掉「已批准」、三个落库按钮防连点） |
+| 10 | `node test/no_secret.test.cjs` | **推送防泄漏**：待推送文件（git 追踪+未忽略）里不许有真密钥——形态扫描 sk-/GitHub token/AWS key/私钥块，外加把环境变量/凭据文件里的真值拿来逐字节比对（**值永不打印**）。`node test/no_secret.test.cjs <凭据文件>` 可加验真值 |
 
 ```bash
 node test/logic.test.cjs
