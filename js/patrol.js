@@ -263,7 +263,22 @@ const Patrol = {
     } catch (e) {
       r = { answer: '出错了：' + (e && e.message || e), source: 'local', trace: [] }
     }
-    const updated = Logic.appendQa(p, {
+    // ⚠️ 必须回读**库里那份**再挂 Q&A（2026-09-30 修）。
+    //
+    // `AI.ask` 是秒级的 await，这期间用户完全可能点了「通过」—— 那一步会把库里那条
+    // 改成 status:'approved'、填上 decided_by、落一笔流水、并写进审计事件。
+    // 而传进来的 p 是**渲染时那份**（status:'open'、decided_by 空、没有批准事件）；
+    // 拿它造新对象整条 put，等于把刚才那些改动全部冲掉。实测中招：
+    // 批准后 status 变回 open、decided_by 变空、批准时的审计事件没了 ——
+    // 于是「通过」按钮又能点一次，**同一笔调整落两次**（账实不符 + 审计被抹）。
+    //
+    // 这跟 decide() 上方那条「不能只看传进来的 p.status，必须以库里存的那份为准」
+    // 是同一条纪律，只是那里防的是连点、这里防的是「追问在飞时被批准」。
+    const stored = (await DB.getAll('proposals')).find(x => x.id === p.id)
+    if (!stored) {
+      return { proposal: p, answer: r.answer, source: r.source, skipped: '提案已不在库里' }
+    }
+    const updated = Logic.appendQa(stored, {
       q: question, a: r.answer,
       at: Date.now(), by: CONFIG.operator || '未署名',
       tool_calls: r.trace || []
@@ -274,22 +289,25 @@ const Patrol = {
 
   // 改提案（非单向状态机）：逐行改数量（<=0 = 删行）→ 新版本回到 open，旧版本留痕
   async revise(p, qtys, note) {
-    const src = (p.lines || []).map(l => Object.assign({}, l))
+    // 和 ask() 同一条纪律：以**库里存的那份**为准，不用传进来的 p（它可能已过期）。
+    const stored = (await DB.getAll('proposals')).find(x => x.id === p.id) || p
+    const src = (stored.lines || []).map(l => Object.assign({}, l))
     const lines = []
     src.forEach((l, i) => {
       const q = Array.isArray(qtys) ? qtys[i] : qtys
       if (q > 0) { l.qty = q; lines.push(l) }
     })
-    const { old, revision } = Logic.reviseProposal(p, {
+    const { old, revision } = Logic.reviseProposal(stored, {
       lines: lines.length ? lines : null,
       note: note || ('数量改为 ' + (lines.length ? lines.map(l => l.qty).join('/') : '（全部删除）')),
       by: CONFIG.operator || '未署名',
       at: Date.now()
     })
-    revision.utterance = (p.utterance || '').split('\n')[0] +
+    revision.utterance = (stored.utterance || '').split('\n')[0] +
       `\n（已改：${lines.length ? lines.map(l => l.qty).join('/') : '全部删除'}，批准前请核对实物）`
-    await DB.put('proposals', old)
-    await DB.put('proposals', revision)
+    // 两条一起写。原来是两次独立 put —— 中间挂掉会留下「旧版被标 superseded、
+    // 新版没进去」的半套状态，提案直接从待办箱消失（丢当前，不是丢历史）。
+    await DB.putProposals([old, revision])
     return revision
   }
 }

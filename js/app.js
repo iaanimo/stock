@@ -110,6 +110,18 @@ async function reload() {
   S.locations.sort((a, b) => a.code.localeCompare(b.code))
 }
 
+// ——————————————————————————————————————
+// 写库在途闸（2026-09-30 修）
+//
+// 三个落库按钮（确认上架 / 确认出库 / 确认盘点调整）原来都是「await 落盘 → 再清界面状态」。
+// 而手机上双击是常态：两次点击都能通过界面检查（状态还没清），同一批流水就落两遍 ——
+// 实测「确认上架」双击后库存翻倍，两条 in 流水 id 不同、内容一模一样。
+//
+// 闸必须是【同步占位】：设闸和检查之间不能有 await，否则两个并发调用会同时通过检查。
+// 待办箱的「通过」用的是同一套做法（见 js/patrol.js 的 _deciding）。
+// ——————————————————————————————————————
+let _writing = false
+
 async function addMove(type, itemId, locationId, qty, photos, counterparty, by) {
   // by 可显式指定（待办箱批准落库时=批准人）；不传则记当前操作人
   const m = DB.makeMove(type, itemId, locationId, qty, photos, by || CONFIG.operator || '', counterparty || '')
@@ -461,14 +473,20 @@ function vDraft() {
 }
 
 async function doReceive() {
+  if (_writing) return                       // 在途闸：同步挡掉第二次点击
   const r = S.receive
   if (!r.loc) { toast('先选一个货位'); return }
   const qty = Math.max(1, parseInt(r.qty, 10) || 1)
   const label = r.loc.label
-  await addMove('in', r.item.id, r.loc.id, qty, r.photos)
-  S.receive = null
-  render()
-  toast(`已上架 ${qty} 个到 ${label}`)
+  _writing = true
+  try {
+    await addMove('in', r.item.id, r.loc.id, qty, r.photos)
+    S.receive = null
+    render()
+    toast(`已上架 ${qty} 个到 ${label}`)
+  } finally {
+    _writing = false
+  }
 }
 
 // ——————————————————————————————————————
@@ -561,6 +579,7 @@ function startShip(item) {
 }
 
 async function doShip() {
+  if (_writing) return                       // 在途闸（同上）
   const s = S.ship
   const plan = Logic.pickPlan(s.item.id, S.moves, S.locations)
   let need = Math.max(1, parseInt(s.qty, 10) || 1)
@@ -575,20 +594,25 @@ async function doShip() {
     need = total
   }
 
-  const done = []
-  for (const p of plan) {
-    if (need <= 0) break
-    const take = Math.min(need, p.qty)
-    if (take > 0) {
-      await addMove('out', s.item.id, p.loc.id, -take, [])
-      done.push(`${p.loc.label} 取 ${take}`)
+  _writing = true
+  try {
+    const done = []
+    for (const p of plan) {
+      if (need <= 0) break
+      const take = Math.min(need, p.qty)
+      if (take > 0) {
+        await addMove('out', s.item.id, p.loc.id, -take, [])
+        done.push(`${p.loc.label} 取 ${take}`)
+      }
+      need -= take
     }
-    need -= take
-  }
 
-  S.ship = null
-  render()
-  toast('已出库：' + done.join('，'))
+    S.ship = null
+    render()
+    toast('已出库：' + done.join('，'))
+  } finally {
+    _writing = false
+  }
 }
 
 // ——————————————————————————————————————
@@ -725,6 +749,7 @@ function exportDiff() {
 }
 
 async function confirmCount() {
+  if (_writing) return                       // 在途闸（同上）
   const c = S.count
   const todo = c.rows
     .map(r => {
@@ -737,12 +762,17 @@ async function confirmCount() {
   if (!todo.length) { toast('没有差异，不用调整'); return }
   if (!confirm(`把 ${todo.length} 项差异调整成实际数量？`)) return
 
-  for (const x of todo) {
-    await addMove('count', x.r.itemId, x.r.locId, x.a - x.r.system, [])
+  _writing = true
+  try {
+    for (const x of todo) {
+      await addMove('count', x.r.itemId, x.r.locId, x.a - x.r.system, [])
+    }
+    S.count = null
+    render()
+    toast(`已调整 ${todo.length} 项`)
+  } finally {
+    _writing = false
   }
-  S.count = null
-  render()
-  toast(`已调整 ${todo.length} 项`)
 }
 
 // ——————————————————————————————————————

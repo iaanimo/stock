@@ -224,6 +224,25 @@ function applyDecision(proposal, moves) {
   }))
 }
 
+// ——————————————————————————————————————————————
+// 一次事务里写多条提案
+//
+// 改提案（revise）要同时写两条：「旧版本标 superseded」和「新版本回 open」。
+// 原来是两次独立 put，中间挂掉（关页面、配额满、崩溃）会留下半套 ——
+// 旧版被标成 superseded 了、新版却没进去，**这个提案就从待办箱里消失了**：
+// 不是丢历史，是丢当前。放进一个事务里，失败自动回滚。
+// ——————————————————————————————————————————————
+function putProposals(list) {
+  return open().then(db => new Promise((resolve, reject) => {
+    const t = db.transaction('proposals', 'readwrite')
+    const s = t.objectStore('proposals')
+    list.forEach(p => s.put(p))
+    t.oncomplete = () => resolve(list.length)
+    t.onerror = () => reject(t.error || new Error('写入失败'))
+    t.onabort = () => reject(t.error || new Error('事务被中止'))
+  }))
+}
+
 const ALL_STORES = ['items', 'locations', 'moves', 'proposals']
 
 // 整库替换（导入备份用）：四张表在**一个事务**里清空 + 重写。
@@ -247,5 +266,5 @@ function replaceAll(data) {
 
 const DB = {
   open, getAll, put, clear, bulkPut, ensureSeed, reset, makeMove, sync, newMoveId,
-  applyDecision, replaceAll
+  applyDecision, putProposals, replaceAll
 }

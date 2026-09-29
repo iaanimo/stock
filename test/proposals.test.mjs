@@ -287,6 +287,51 @@ const aiMoves = await cdp.eval(`(async () => {
 })()`)
 eq('AI 名下 0 条流水（写库存的笔只在人手里）', aiMoves, 0)
 
+console.log('\n⑪ 追问写回不能冲掉「已批准」（回归 · 2026-09-30 修）')
+// 旧写法：Patrol.ask 拿**渲染时那份 p** 造新对象整条 put。而 await AI.ask 是秒级窗口，
+// 用户完全可能在这期间点了「通过」—— 于是 status/decided_by/批准审计事件全被冲回 open，
+// 再点「通过」又能落一次 = 同一笔调整落两次（账实不符 + 审计被抹）。
+// 这里冻结一份「过期快照」，精确重演界面闭包那条路径。
+const qaFix = await cdp.eval(`(async () => {
+  const ex = await Patrol.extractRows('6204轴承 3')      // → { rows, source }
+  const fresh = await Patrol.submitDraft('6204轴承 3', ex.rows, null)
+  const stale = JSON.parse(JSON.stringify(fresh))   // 冻结：模拟界面闭包里那份
+  const before = S.moves.length
+
+  await Patrol.decide(stale, true, '回归测试')      // ① 先批准（库里变 approved）
+  await Patrol.ask(stale, '回归测试追问')           // ② 再用过期快照走追问写回
+  const stored = (await DB.getAll('proposals')).find(x => x.id === stale.id)
+  const afterAsk = S.moves.length
+  const again = await Patrol.decide(stale, true, '回归测试')   // ③ 再点一次通过
+
+  return {
+    status: stored.status,
+    decided: stored.decided_by || '(空)',
+    approveEvents: (stored.events || []).filter(e => e.action === 'approve').length,
+    askEvents: (stored.events || []).filter(e => e.action === 'ask').length,
+    movesFromApprove: afterAsk - before,
+    secondSkipped: again && again.skipped ? again.skipped : '(没被挡)',
+    movesFromSecond: S.moves.length - afterAsk,
+  }
+})()`)
+eq('⑪ 提案停在「已批准」（没被追问冲回 open）', qaFix.status, 'approved')
+eq('⑪ 批准人还在（没被清空）', qaFix.decided !== '(空)', true)
+eq('⑪ 批准时的审计事件还在', qaFix.approveEvents >= 1, true)
+eq('⑪ 追问的 Q&A 也挂上了（不是简单拒绝写入）', qaFix.askEvents >= 1, true)
+eq('⑪ 再点一次「通过」被状态闸挡住', qaFix.secondSkipped !== '(没被挡)', true)
+eq('⑪ 第二次点击落 0 条流水（不翻倍）', qaFix.movesFromSecond, 0)
+
+console.log('\n⑫ 落库按钮防连点（回归 · 2026-09-30 修）')
+// 旧写法：await 落盘之后才清 S.receive —— 两次点击都能通过界面检查，
+// 同一批流水落两遍（实测库存翻倍）。这里在**同一个 tick 里调两次**模拟双击。
+const dbl = await cdp.eval(`(async () => {
+  S.receive = { item: S.items[0], loc: S.locations[0], qty: 1, photos: [] }
+  const before = S.moves.length
+  await Promise.all([doReceive(), doReceive()])
+  return { delta: S.moves.length - before }
+})()`)
+eq('⑫ 双击「确认上架」只落 1 条流水（不翻倍）', dbl.delta, 1)
+
 const errs = cdp.logs.filter(l => l.startsWith('异常') || l.startsWith('error:'))
 console.log('\n控制台错误：' + (errs.length ? errs.join('\n') : '无'))
 eq('控制台 0 错误', errs.length, 0)
