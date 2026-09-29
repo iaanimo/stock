@@ -1,11 +1,18 @@
 name: tests
 
-# 这个仓库一共 10 层测试网，其中 7 层要连 headless Edge 做真实渲染/事件，
-# Actions 里起不了浏览器 —— 所以 CI 只跑**不依赖浏览器的三层**：
-#   1  logic.test.cjs   纯函数逻辑
-#   2  agent.test.mjs   agent 回路 + 工具只读硬保证
-#   10 no_secret.test.cjs 推送防泄漏（待该文件进仓库后自动接上）
-# 剩下的层怎么在本机跑，见 README 的「自测」一节。
+# 本仓库的测试网在 CI 里全量跑（唯一例外是 test/probe.mjs —— 它要对着
+# 已部署的 Pages 站点冒烟，部署后在本机跑，见 README「自测」一节）：
+#
+#   纯 Node 层：logic（纯函数逻辑）/ agent（agent 回路 + 全程只读硬保证）
+#               no_secret（推送防泄漏）
+#   Python 层 ：py_selftest（服务端防注入闸：丢弃前端 system、消息消毒、
+#               工具配对校验、长度上限）
+#   浏览器层  ：ask / proposals / barcode / scanflow / ui
+#               —— headless Chrome + CDP 9222 + 假摄像头出图
+#               （scanflow 要求摄像头真的出图，用 Chrome 的 fake device 开关）
+#
+# 浏览器层用的是 CDP 通用协议，本机没有 Edge 用 Chrome 也一样跑。
+# 2026-09-29 已在本机 headless Edge 全层实测通过（scanflow 8/8 依赖假摄像头开关）。
 
 on:
   push:
@@ -13,7 +20,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  node:
+  tests:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,18 +31,57 @@ jobs:
         with:
           node-version: "20"
 
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装服务端依赖
+        run: pip install -r requirements.txt
+
+      # ── 纯 Node 层 ──────────────────────────────────────
       - name: 第 1 层 — 纯函数逻辑
         run: node test/logic.test.cjs
 
       - name: 第 2 层 — agent 回路 + 全程只读
         run: node test/agent.test.mjs
 
-      - name: 第 10 层 — 推送防泄漏自检
-        # 这一层是本地的第 10 层；它还没进仓库时跳过并留一条 notice，
-        # 进仓库之后这里会自动跑起来，不用再改 workflow。
+      - name: 推送防泄漏自检
+        run: node test/no_secret.test.cjs
+
+      # ── Python 层 ───────────────────────────────────────
+      - name: 服务端防注入闸自检
+        run: python test/py_selftest.py
+
+      # ── 浏览器层（headless Chrome + CDP）─────────────────
+      - name: 起静态服务 + headless Chrome（假摄像头）
         run: |
-          if [ -f test/no_secret.test.cjs ]; then
-            node test/no_secret.test.cjs
-          else
-            echo "::notice::test/no_secret.test.cjs 还没进仓库，本层跳过"
-          fi
+          python serve.py &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8000/ >/dev/null && break
+            sleep 0.5
+          done
+          google-chrome --headless=new \
+            --remote-debugging-port=9222 --remote-allow-origins='*' \
+            --no-sandbox --disable-gpu \
+            --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
+            --user-data-dir=/tmp/chrome-ci http://localhost:8000/ &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9222/json/version >/dev/null && break
+            sleep 0.5
+          done
+
+      - name: 浏览器层 — 问答页冒烟（含全程只读硬保证）
+        run: node test/ask.test.mjs
+
+      - name: 浏览器层 — 巡检提案与待办箱
+        run: node test/proposals.test.mjs
+
+      - name: 浏览器层 — 条码解码（wasm 本站加载）
+        run: node test/barcode.test.mjs
+
+      - name: 浏览器层 — 扫码全流程（假摄像头出图）
+        run: node test/scanflow.test.mjs
+
+      - name: 浏览器层 — UI 回归
+        run: node test/ui.test.mjs

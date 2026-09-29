@@ -26,6 +26,7 @@ ALLOW_EXACT = {
 ALLOW_PREFIX = (
     'css/',
     'js/',                # 含 js/vendor/（扫码兜底的 wasm，1.1MB）
+    'icons/',             # PWA 图标（manifest.json 引用）
     'test/fixtures/',     # 真解码测试用的条码图片，不含敏感内容
 )
 

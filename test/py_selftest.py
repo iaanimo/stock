@@ -52,6 +52,7 @@ MUST_ALLOW = [
     '', '.', '/', 'index.html', 'manifest.json', 'sw.js', '.nojekyll',
     'css/app.css', 'js/app.js',
     'js/vendor/zxing_reader.wasm', 'js/vendor/barcode-detector-polyfill.js',
+    'icons/icon-192.png', 'icons/icon-512.png',   # manifest 引用的 PWA 图标
     'test/fixtures/Code128-6204.png',
     # Windows 上 Starlette 传进来的分隔符是反斜杠（实测），必须也放行
     'css\\app.css', 'js\\vendor\\zxing_reader.wasm',

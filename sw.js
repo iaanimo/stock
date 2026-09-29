@@ -1,7 +1,7 @@
 // sw.js —— Service Worker：把页面本身缓存下来，断网也能打开
 // 数据不走这里（数据在 IndexedDB），这里只管外壳（html/css/js）
 
-const CACHE = 'stock-web-v5'
+const CACHE = 'stock-web-v6'
 
 const ASSETS = [
   './',
@@ -18,11 +18,15 @@ const ASSETS = [
   'js/patrol.js',
   'js/app.js',
   // 扫码兜底：iPhone 上没有原生 BarcodeDetector，靠这两个跑 WASM 解码。
-  // 那 1.1MB 的 wasm 也一并预缓存 —— 不预缓存的话，地下室断网 + 第一次扫码 = 扫不了。
-  // 代价是安装时多下 1.1MB，安卓用户其实用不到（他们有原生 API，不会加载这个脚本）。
   'js/vendor/barcode-detector-polyfill.js',
-  'js/vendor/zxing_reader.wasm'
 ]
+
+// 那 1.1MB 的 wasm 只有 iPhone/iPad 的扫码兜底用得上 —— 安卓/桌面有原生
+// BarcodeDetector，根本不会加载它。按 UA 决定要不要预缓存，省掉大部分人
+// 安装时白下的 1.1MB；iOS 上仍保住「装完离线也能第一次扫码」的承诺，
+// 其他端首次联网使用时 fetch 层的缓存兜底会把 wasm 存下来。
+const isIOS = /iPad|iPhone|iPod/.test(self.navigator?.userAgent || '')
+if (isIOS) ASSETS.push('js/vendor/zxing_reader.wasm')
 
 self.addEventListener('install', e => {
   e.waitUntil(
