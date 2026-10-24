@@ -632,6 +632,65 @@ const Logic = {
     return { proposal: proposal, moves: moves }
   },
 
+  // 落库后复检：提案要解决的问题，真的解决了吗？
+  //
+  // 只读：不改库存、不产生流水。返回 { ok, at, checks }，ok 三态：
+  //   true  = 问题已消失；
+  //   false = 问题仍在（调用方据此立一条"复检未通过"待办，交给人）；
+  //   null  = 该类提案没有"可消失的状态"（日报、超大调整提示），不设复检项。
+  //
+  // 口径按提案类型分：
+  //   low_stock   → 当前在库是否回到安全线；
+  //   stagnant    → 提案之后是否产生了新的收发（呆滞靠"有动作"解除）；
+  //   anomaly     → 负库存看该货位**当前结余**是否非负（历史那笔流水不会消失，
+  //                 所以不能拿"同类发现还在不在"当判据）；
+  //   带流水行的   → 是否真的落了流水（草稿收货 / 调查报告转执行）。
+  verifyProposal(p, data, opts) {
+    const o = opts || {}
+    const at = o.now || Date.now()
+    const d = p.detail || {}
+    const moves = data.moves || []
+    const checks = []
+
+    if (p.kind === 'low_stock' && d.itemId) {
+      const total = Logic.totalOf(d.itemId, moves)
+      const safety = d.safety != null ? d.safety : 10
+      checks.push({
+        name: '库存回到安全线', ok: total >= safety,
+        detail: `在库 ${total}，安全线 ${safety}`
+      })
+    } else if (p.kind === 'stagnant' && d.itemId) {
+      const last = moves.filter(m => m.itemId === d.itemId)
+        .reduce((a, m) => Math.max(a, m.ts || 0), 0)
+      const active = last > (d.lastTs || 0)
+      checks.push({
+        name: '产生了新的流转', ok: active,
+        detail: active ? '已有新的收发记录' : '仍无任何收发'
+      })
+    } else if (p.kind === 'anomaly' && d.itemId && d.reason === '负库存') {
+      const bal = Logic.qtyAt(d.itemId, d.locationId, moves)
+      checks.push({
+        name: '货位结余已非负', ok: bal >= 0,
+        detail: `当前结余 ${bal}`
+      })
+    } else if ((p.lines || []).length) {
+      const n = (p.moves_applied || []).length
+      checks.push({
+        name: '流水已落库', ok: n > 0,
+        detail: n ? `已落 ${n} 条流水` : '没有落库流水'
+      })
+    } else {
+      checks.push({
+        name: '无需复检', ok: null,
+        detail: '该类提案不针对可消失的问题'
+      })
+    }
+
+    const ok = checks.some(c => c.ok === false) ? false
+      : (checks.every(c => c.ok === true) ? true : null)
+    return { ok: ok, at: at, checks: checks }
+  },
+
   // 改提案：旧记录标 superseded 留痕，新版本回到 open（非单向状态机）
   reviseProposal(p, r) {
     const at = r.at || Date.now()

@@ -123,10 +123,53 @@ const Patrol = {
         DB.makeMove(m.type, m.itemId, m.locationId, m.qty, [], by, ''))
       await DB.applyDecision(proposal, made)
       made.forEach(m => S.moves.push(m))      // 同步内存态
-      return { proposal: proposal, moves: made }
+
+      // 落库后复检（observe）：提案要解决的问题真的消失了吗？
+      // 只读，不产生任何流水；没解决就立一条新待办交给人 ——
+      // 系统不会因为"复检失败"再自动动一次库存。
+      let verification = null
+      let followUp = null
+      if (approve) {
+        verification = Logic.verifyProposal(
+          proposal,
+          { items: S.items, moves: S.moves, locations: S.locations },
+          { now: Date.now() }
+        )
+        proposal.verification = verification
+        await DB.put('proposals', proposal)
+        if (verification.ok === false) followUp = await Patrol.openFollowUp(proposal, verification)
+      }
+      return { proposal: proposal, moves: made, verification: verification, followUp: followUp }
     } finally {
       _deciding.delete(p.id)
     }
+  },
+
+  // 复检没通过 → 立一条待办。同 key 开着就不重复立（和巡检去重同一条纪律）。
+  async openFollowUp(p, verification) {
+    const key = 'verify:' + p.id
+    const all = await DB.getAll('proposals')
+    const prior = all.find(x => x.key === key && x.status === 'open')
+    if (prior) return prior
+    const failed = verification.checks.filter(c => !c.ok)
+      .map(c => c.name + '：' + c.detail).join('；')
+    const fp = Logic.newProposal({
+      key: key,
+      kind: 'verify_failed',
+      priority: 0,
+      summary: ('复检未通过：' + (p.summary || '')).slice(0, 80),
+      detail: { about: p.id, checks: verification.checks },
+      lines: null,
+      utterance: '规则说明：落库后复检发现原问题仍在（' + failed +
+        '）。请人工核查实物与单据；系统不会自行再动库存。'
+    }, {
+      now: Date.now(),
+      model: 'rules',
+      source: 'verify',
+      created_by: 'AI 复检 · 规则引擎'
+    })
+    await DB.put('proposals', fp)
+    return fp
   },
 
   // 差异调查 = 自由工具循环（agent 性最强点）：规则只负责"发现"，

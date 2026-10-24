@@ -301,5 +301,52 @@ eq('草稿行：负数量同样不进落库行（名字里那半句原来没测�
 eq('草稿行：改过数量以改动为准（提交层合并 edits 后再走同一规则）',
   Logic.draftReceiptRows([{ lineNo: 1, raw: 'x', desc: '6204', qty: 30 }], data).lines[0].qty, 30)
 
+console.log('\n落库后复检（verifyProposal：只读，三态 ok/true/false/null）')
+
+// low_stock：在库回到安全线才算解决
+const vLowOpen = Logic.verifyProposal(
+  { kind: 'low_stock', detail: { itemId: 'it_6308', safety: 40 }, lines: null },
+  { items, moves, locations })
+eq('复检·低库存未补货 → 未通过', vLowOpen.ok, false)
+eq('复检·低库存结论带数字', /在库 30，安全线 40/.test(vLowOpen.checks[0].detail), true)
+const movesRestocked = moves.concat([{ id: 'r1', type: 'in', itemId: 'it_6308', locationId: 'C-3-1', qty: 20, ts: Date.now() }])
+eq('复检·低库存补到 50 → 通过',
+  Logic.verifyProposal({ kind: 'low_stock', detail: { itemId: 'it_6308', safety: 40 } },
+    { items, moves: movesRestocked, locations }).ok, true)
+
+// stagnant：提案之后有没有产生新的收发
+const vStag = Logic.verifyProposal(
+  { kind: 'stagnant', detail: { itemId: 'it_6204', lastTs: Date.now() - 86400000 } },
+  { items, moves, locations })
+eq('复检·呆滞仍无流转 → 未通过', vStag.ok, false)
+eq('复检·呆滞产生新流转 → 通过',
+  Logic.verifyProposal(
+    { kind: 'stagnant', detail: { itemId: 'it_6204', lastTs: 0 } },
+    { items, moves: movesRestocked, locations }).ok, true)
+
+// anomaly 负库存：看该货位**当前结余**，不是"历史那笔还在不在"
+const badMoves = [{ id: 'b1', type: 'out', itemId: 'it_6205', locationId: 'B-1-1', qty: -10, ts: 1 }]
+eq('复检·负库存结余仍为负 → 未通过',
+  Logic.verifyProposal({ kind: 'anomaly', detail: { itemId: 'it_6205', locationId: 'B-1-1', reason: '负库存' } },
+    { items, moves: badMoves, locations }).ok, false)
+const fixedMoves = badMoves.concat([{ id: 'b2', type: 'count', itemId: 'it_6205', locationId: 'B-1-1', qty: 12, ts: 2 }])
+eq('复检·补平后结余非负 → 通过',
+  Logic.verifyProposal({ kind: 'anomaly', detail: { itemId: 'it_6205', locationId: 'B-1-1', reason: '负库存' } },
+    { items, moves: fixedMoves, locations }).ok, true)
+eq('复检·超大调整没有可消失状态 → 未设复检项（null）',
+  Logic.verifyProposal({ kind: 'anomaly', detail: { itemId: 'it_6205', locationId: 'B-1-1', reason: '超大调整' } },
+    { items, moves, locations }).ok, null)
+
+// 带流水行的（草稿收货）：验有没有真的落库
+eq('复检·草稿有落库流水 → 通过',
+  Logic.verifyProposal({ kind: 'draft_receipt', lines: [{ itemId: 'x' }], moves_applied: ['a|b|1'] },
+    { items, moves, locations }).ok, true)
+eq('复检·草稿没落库 → 未通过',
+  Logic.verifyProposal({ kind: 'draft_receipt', lines: [{ itemId: 'x' }], moves_applied: [] },
+    { items, moves, locations }).ok, false)
+
+// 日报：纯信息，不设复检项
+eq('复检·日报不设复检项', Logic.verifyProposal({ kind: 'daily' }, { items, moves, locations }).ok, null)
+
 console.log('\n结果：' + pass + ' 通过' + (fail ? '，' + fail + ' 失败' : '') + '\n')
 process.exit(fail ? 1 : 0)

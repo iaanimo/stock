@@ -74,7 +74,8 @@ function fmtTime(ts) {
 
 const PROP_KINDS = {
   investigation: '调查报告', anomaly: '异常流水',
-  low_stock: '低库存', stagnant: '呆滞', daily: '日报'
+  low_stock: '低库存', stagnant: '呆滞', daily: '日报',
+  verify_failed: '复检未通过'
 }
 
 // 审计轨迹一行字（审计身份 = AI 起草 · 谁批准 · 何时）
@@ -862,6 +863,15 @@ function propCard(p) {
   const reasonHtml = (p.status === 'rejected' && p.decide_reason)
     ? `<div class="prop-reason">拒绝理由：${esc(p.decide_reason)}</div>` : ''
 
+  // 落库后复检结论：通过/未通过/未设复检项 —— 三态都要能看出来
+  const v = p.verification
+  const verifyHtml = v
+    ? `<div class="prop-verify ${v.ok === false ? 'bad' : (v.ok === true ? 'ok' : '')}">
+        <b>落库后复检：${v.ok === false ? '未通过' : (v.ok === true ? '通过' : '未设复检项')}</b>
+        <div class="clause">${esc((v.checks || []).map(c => c.name + '（' + c.detail + '）').join('；'))}</div>
+      </div>`
+    : ''
+
   let actions = ''
   if (p.status === 'open') {
     const canInvest = (p.kind === 'anomaly' || p.kind === 'low_stock' || p.kind === 'stagnant')
@@ -881,6 +891,7 @@ function propCard(p) {
     ${p.utterance ? `<div class="prop-note">${esc(p.utterance).replace(/\n/g, '<br>')}</div>` : ''}
     ${linesHtml}
     ${reasonHtml}
+    ${verifyHtml}
     ${qaHtml}
     ${traceHtml}
     <div class="audit">${audit}</div>
@@ -1189,7 +1200,16 @@ const BIND = {
             try {
               const r = await Patrol.decide(p, true, '')
               if (r.skipped) toast(r.skipped)
-              else toast(r.moves.length ? `已批准并落库 ${r.moves.length} 条流水` : '已批准归档')
+              else if (r.verification && r.verification.ok === false) {
+                // 落库成功但问题仍在：说清楚，并把复检结论亮在卡片上
+                toast('已落库，但复检未通过：' + (r.followUp ? '已生成待办' : '见提案'))
+              } else if (r.verification && r.verification.ok === true) {
+                toast(r.moves.length
+                  ? `已批准并落库 ${r.moves.length} 条流水 · 复检通过`
+                  : '已批准归档 · 复检通过')
+              } else {
+                toast(r.moves.length ? `已批准并落库 ${r.moves.length} 条流水` : '已批准归档')
+              }
             } catch (e) {
               toast('落库失败：' + (e && e.message || e))
             }
