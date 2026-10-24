@@ -614,7 +614,11 @@ const Logic = {
   // 拒绝必须给理由（存档）；批准人和时间写进 events —— 审计身份 = AI 起草 · 谁批准 · 何时。
   decideProposal(p, d) {
     const at = d.at || Date.now()
-    const by = d.by || ''
+    const by = String(d.by || '').trim()
+    // 责任链最后一环：**裁决必须署名**。
+    // decided_by 为空串 = 审计上"谁批的"不可指认；库存调整是实打实的资产变动，
+    // 一个没有署名人的批准，等价于系统自己批了自己。
+    if (!by) throw new Error('裁决必须署名：操作人不能为空')
     const moves = (d.approve && p.lines) ? p.lines.map(l => ({
       type: l.type, itemId: l.itemId, locationId: l.locationId, qty: l.qty
     })) : []

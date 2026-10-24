@@ -84,6 +84,9 @@ await cdp.send('Runtime.enable')
 // 等 boot() 灌完种子数据 + 巡检引擎就绪
 await until(cdp, `typeof Patrol !== 'undefined' && S.items.length > 0`, 8000)
 
+// P0：裁决必须署名 —— 测试里先给一个操作人（否则后面的批准会被拒）
+await cdp.eval(`saveConfig({ operator: '测试员' })`)
+
 console.log('\n① 开 App 巡检自主跑（没点任何按钮）')
 // 自主巡检是异步的（app.js boot 里 fire-and-forget），带 LLM 起草时可能要几秒：
 // 这里等「待办真的进台账」再读，而不是抢跑读瞬时值（超时给足 20 秒）
@@ -331,6 +334,36 @@ const dbl = await cdp.eval(`(async () => {
   return { delta: S.moves.length - before }
 })()`)
 eq('⑫ 双击「确认上架」只落 1 条流水（不翻倍）', dbl.delta, 1)
+
+console.log('\n⑬ 未署名禁止裁决（P0 · 责任链最后一环）')
+// 未署名批准 = decided_by 空串 = "谁批的"不可指认；库存调整是资产变动，
+// 一个没有署名人的批准等价于系统批了自己 —— 必须在落库前挡住。
+const unsigned = await cdp.eval(`(async () => {
+  saveConfig({ operator: '' })
+  let all = await DB.getAll('proposals')
+  let p = all.find(x => x.status === 'open')
+  if (!p) {
+    await Patrol.sweep()
+    all = await DB.getAll('proposals')
+    p = all.find(x => x.status === 'open')
+  }
+  if (!p) return { err: '没有可用的 open 提案' }
+  const before = S.moves.length
+  const r = await Patrol.decide(p, true, '')
+  const after = S.moves.length
+  const stored = (await DB.getAll('proposals')).find(x => x.id === p.id)
+  saveConfig({ operator: '测试员' })
+  return {
+    skipped: (r && r.skipped) || '',
+    delta: after - before,
+    status: stored.status,
+    decidedBy: stored.decided_by || ''
+  }
+})()`)
+eq('⑬ 未署名时批准被拒（给的是人话原因）', /署名/.test(unsigned.skipped || ''), true)
+eq('⑬ 未署名时一条流水都不落', unsigned.delta, 0)
+eq('⑬ 提案保持待处理（没被改成已批准）', unsigned.status, 'open')
+eq('⑬ 批准人没有被写成空串', unsigned.decidedBy, '')
 
 const errs = cdp.logs.filter(l => l.startsWith('异常') || l.startsWith('error:'))
 console.log('\n控制台错误：' + (errs.length ? errs.join('\n') : '无'))

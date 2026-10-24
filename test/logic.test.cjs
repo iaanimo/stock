@@ -254,6 +254,14 @@ eq('通过：落库记录进事件（谁批准 · 何时 · 动了什么）',
   [dec2.proposal.events[1].by, dec2.proposal.events[1].moves.length], ['王五', 1])
 eq('无 lines 的提案通过 → 不落库', Logic.decideProposal(pOpen, { approve: true, by: '王五', at: 1 }).moves, [])
 
+// 责任链最后一环：裁决必须署名（P0：未署名批准 = 谁批的不可指认）
+let signErr = ''
+try { Logic.decideProposal(pOpen, { approve: true, by: '', at: 1 }) } catch (e) { signErr = String(e && e.message || e) }
+eq('未署名裁决被拒（不产生任何状态变更）', /署名/.test(signErr), true)
+let wsErr = ''
+try { Logic.decideProposal(pOpen, { approve: true, by: '   ', at: 1 }) } catch (e) { wsErr = String(e && e.message || e) }
+eq('全空格也算未署名', /署名/.test(wsErr), true)
+
 const rev = Logic.reviseProposal(pLines, { lines: [{ type: 'count', itemId: 'it_6204', locationId: 'A-2-1', qty: 7 }], by: '王五', at: NOW + 3000 })
 eq('改提案：旧版本标 superseded 留痕', [rev.old.status, rev.old.events[1].action], ['superseded', 'revise'])
 eq('改提案：新版本回 open、新旧挂链、数量已改',

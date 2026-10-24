@@ -836,8 +836,12 @@ function vProposals() {
     ? rows.map(propCard).join('')
     : '<p class="empty">没有待办。巡检没发现异常，或者都被处理完了。</p>'
 
+  const needOperator = !String(CONFIG.operator || '').trim()
+
   return `
-  <div class="step">AI 只能起草提案 · 通过才落库 · 拒绝留理由 · 全程留痕</div>
+  <div class="step">${needOperator
+    ? '⚠ 未填写操作人：批准/拒绝会被拒绝（责任链要求署名）—— 点右上角「操作人」填写'
+    : 'AI 只能起草提案 · 通过才落库 · 拒绝留理由 · 全程留痕'}</div>
   ${tabs}
   ${body}
   <div class="foot"><button class="link" id="sweepBtn">再巡一次</button></div>`

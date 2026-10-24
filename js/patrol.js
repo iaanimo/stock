@@ -114,7 +114,17 @@ const Patrol = {
         return { proposal: stored, moves: [], skipped: '这个提案已经处理过了' }
       }
 
-      const by = CONFIG.operator || '未署名'
+      // 裁决必须署名：未署名时 decided_by 会是空串，追溯链断在最后一环。
+      // 在这里挡住（而不是只靠 Logic 抛错），是为了给人一句能看懂的话。
+      const operator = String(CONFIG.operator || '').trim()
+      if (!operator) {
+        return {
+          proposal: stored, moves: [],
+          skipped: '未署名禁止裁决：请先点右上角「操作人」填写姓名'
+        }
+      }
+
+      const by = operator
       const { proposal, moves } = Logic.decideProposal(stored, {
         approve: approve, by: by, reason: reason, at: Date.now()
       })
