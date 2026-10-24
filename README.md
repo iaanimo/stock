@@ -2,6 +2,8 @@
 
 ![tests](https://github.com/iaanimo/stock/actions/workflows/tests.yml/badge.svg)
 
+当前版本 **v1.0.0**（变更见 [CHANGELOG](CHANGELOG.md)）
+
 仓库管理系统：手机扫码收发货、货位定位、盘点比对、AI 问答与巡检、断网可用。
 
 **数据全部存在浏览器本机（IndexedDB）** —— 扫码 / 收货 / 出库 / 盘点这些核心功能不需要后端。
