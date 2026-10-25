@@ -95,6 +95,18 @@ eq('开 App 不点按钮就有待办（自主跑）', (bootProps || 0) >= 1, tru
 const homeCard = await cdp.eval(`!!document.querySelector('a[href="#proposals"]')`)
 eq('首页有待办箱卡片', homeCard, true)
 
+// agent 自主性可见：首页不能只有"AI 问答"，要能看到它自己跑过什么
+const agentState = await cdp.eval(`(async () => {
+  const runs = Patrol.runs()
+  const card = document.querySelector('.card.agent')
+  return { runs: runs.length, last: runs[0] || null, card: !!card, text: card ? card.textContent : '' }
+})()`)
+eq('巡检跑过之后有运行记录（agent 自主性可见）', agentState.runs >= 1, true)
+eq('运行记录带扫描范围（商品数/货位数）',
+  !!(agentState.last && agentState.last.items > 0 && agentState.last.locations > 0), true)
+eq('首页有「巡检 Agent」运行态卡片', agentState.card, true)
+eq('卡片说明它没动库存（受控边界可见）', /没动/.test(agentState.text || ''), true)
+
 console.log('\n② 四岗发现进待办箱（清空重扫，状态可复现）')
 const swept = await cdp.eval(`(async () => {
   await DB.clear('proposals')

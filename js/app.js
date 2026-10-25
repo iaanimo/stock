@@ -317,18 +317,38 @@ function vHome() {
   let totalQty = 0
   S.items.forEach(i => { totalQty += Logic.totalOf(i.id, S.moves) })
 
+  // 巡检 Agent 的运行态：让它"自己跑过、发现了什么、没做什么"第一眼可见。
+  // 数据来自 Patrol.runs()（每轮 sweep 记一条），不是新的判定逻辑。
+  const runs = Patrol.runs()
+  const last = runs[0]
+  const openCount = S.proposals.filter(p => p.status === 'open').length
+  const agentCard = `<a class="card agent" href="#proposals">
+    <div class="agent-head"><span class="ico">🤖</span><b>巡检 Agent</b>
+      <span class="agent-time">${last ? last.atLabel + ' 跑过' : '还没跑过'}</span></div>
+    ${last
+      ? `<div class="agent-line">扫了 ${last.items} 种商品 / ${last.locations} 个货位，
+          发现 ${last.found} 条，起草 ${last.drafted} 条 —— <b>库存一条都没动</b></div>
+         <div class="agent-line">等你处理 ${openCount} 条；其余它没报的，是判定为不用打扰你</div>`
+      : '<div class="agent-line">正在准备第一次巡检…</div>'}
+    ${runs.length > 1
+      ? `<div class="agent-history">最近：${runs.slice(1, 4)
+          .map(r => `${r.atLabel} 扫 ${r.locations} 货位 · 发现 ${r.found}`).join('　|　')}</div>`
+      : ''}
+  </a>`
+
   return `
   <div class="hero">
     <div class="hero-num">${totalQty}</div>
     <div class="hero-label">在库总件数 · ${S.items.length} 种商品 · ${S.locations.length} 个货位</div>
   </div>
+  ${agentCard}
   <div class="grid">
     <a class="card" href="#receive"><span class="ico">📥</span><b>收货上架</b></a>
     <a class="card" href="#ship"><span class="ico">📤</span><b>出库拣货</b></a>
     <a class="card" href="#search"><span class="ico">🔍</span><b>库存查询</b></a>
     <a class="card" href="#count"><span class="ico">📋</span><b>盘点</b></a>
     <a class="card" href="#ask"><span class="ico">🤖</span><b>AI 问答</b><small>问一句查库存 · 只读</small></a>
-    <a class="card" href="#proposals"><span class="ico">📬</span><b>待办箱</b><small>${S.proposals.filter(p => p.status === 'open').length} 条待办 · AI 起草你批准</small></a>
+    <a class="card" href="#proposals"><span class="ico">📬</span><b>待办箱</b><small>${openCount} 条待办 · AI 起草你批准</small></a>
   </div>
   <div class="foot">
     <a class="link" href="#overview">库存总览</a>
@@ -1333,6 +1353,19 @@ async function boot() {
     await showProposals()
     toast(`巡检完成：${fresh.length} 条新待办`)
   }).catch(() => {})
+
+  // 受控 agent 的"发起权"：页面开着就每 60 秒自己巡一轮。
+  // 受控的部分没变 —— 它只起草，不落库；人在待办箱里点「通过」才动库存。
+  setInterval(async () => {
+    if (document.hidden) return
+    try {
+      const fresh = await Patrol.sweep()
+      if (!fresh.length) return
+      S.proposals = await Patrol.list()
+      const route = (location.hash || '#home').slice(1) || 'home'
+      if (route === 'home' || route === 'proposals') render()
+    } catch (e) { /* 巡检失败不打断正常使用 */ }
+  }, 60000)
 }
 
 function updateNet() {

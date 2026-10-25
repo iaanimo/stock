@@ -50,7 +50,32 @@ const Patrol = {
         } catch (e) { /* 起草失败不挡巡检 */ }
       }
     }
+    // 运行记录：让"它自己跑过"这件事可见（只存 localStorage，不进业务数据、不参与判定）
+    Patrol.recordRun({
+      at: now,
+      atLabel: new Date(now).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      items: data.items.length,
+      locations: data.locations.length,
+      found: findings.length,
+      drafted: fresh.length,
+      open: existing.filter(p => p.status === 'open').length
+    })
     return fresh
+  },
+
+  // ———— 巡检运行记录（界面观感 + 排查用；环形保留最近 20 轮）————
+  RUN_KEY: 'stock_patrol_runs',
+
+  runs() {
+    try { return JSON.parse(localStorage.getItem(Patrol.RUN_KEY) || '[]') } catch (e) { return [] }
+  },
+
+  recordRun(summary) {
+    try {
+      const all = Patrol.runs()
+      all.unshift(summary)
+      localStorage.setItem(Patrol.RUN_KEY, JSON.stringify(all.slice(0, 20)))
+    } catch (e) { /* 记录失败不影响巡检本身 */ }
   },
 
   // 没 key 时的规则文案（LLM 的兜底，也是离线演示的稳定输出）

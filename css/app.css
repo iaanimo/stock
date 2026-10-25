@@ -251,3 +251,11 @@ td.r { text-align: right; font-variant-numeric: tabular-nums; }
 .prop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .prop-actions .btn { padding: 9px 12px; font-size: 14px; }
 .prop-box { margin-top: 8px; }
+
+/* 首页「巡检 Agent」运行态：让它自己跑过的事第一眼可见（不是问答入口） */
+.card.agent { display: block; margin-bottom: 12px; padding: 14px 16px; }
+.agent-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.agent-head .ico { font-size: 20px; }
+.agent-time { margin-left: auto; color: var(--muted, #9ca3af); font-size: 12px; }
+.agent-line { color: #374151; font-size: 13px; margin-top: 6px; line-height: 1.7; }
+.agent-history { color: var(--muted, #9ca3af); font-size: 11px; margin-top: 8px; }
