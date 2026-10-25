@@ -1,7 +1,7 @@
 // sw.js —— Service Worker：把页面本身缓存下来，断网也能打开
 // 数据不走这里（数据在 IndexedDB），这里只管外壳（html/css/js）
 
-const CACHE = 'stock-web-v9'
+const CACHE = 'stock-web-v10'
 
 const ASSETS = [
   './',

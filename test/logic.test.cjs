@@ -287,6 +287,29 @@ const fb2 = Logic.investigationFallback(pdata, {
 })
 eq('调查：非负库存案不编调整数字', fb2.lines, null)
 
+// 成因线索：只报"数据支持哪一种"，不替人下结论；补平只适用于实盘确有差异
+const hintData = {
+  items: [{ id: 'it_x', sku: 'X', name: '测试件', unit: '件' }],
+  locations: locations,
+  moves: [
+    { id: 'h1', type: 'in', itemId: 'it_x', locationId: 'A-1-1', qty: 10, ts: 1000 },
+    { id: 'h2', type: 'out', itemId: 'it_x', locationId: 'A-1-1', qty: 15, ts: 2000 },
+    { id: 'h3', type: 'in', itemId: 'it_x', locationId: 'A-1-1', qty: 20, ts: 3000 },
+    { id: 'h4', type: 'in', itemId: 'it_x', locationId: 'B-1-1', qty: 5, ts: 1500 }
+  ]
+}
+const fb3 = Logic.investigationFallback(hintData, {
+  moveId: 'h2', reason: '负库存', itemId: 'it_x', locationId: 'A-1-1',
+  sku: 'X', loc: 'A区1排1层', qty: -15, balance: -5, ts: 2000
+})
+eq('成因线索：此后有入库 → 提示先出后补', /先出后补/.test(fb3.report), true)
+eq('成因线索：同款在别的货位有货 → 提示串货位', /串货位/.test(fb3.report), true)
+eq('成因线索：永远提示漏记收货这条', /漏记收货/.test(fb3.report), true)
+eq('建议动作：说明补平只适用于实盘差异，不要拿盘点掩盖',
+  /只适用于/.test(fb3.report) && /不要用盘点调整掩盖/.test(fb3.report), true)
+eq('补平行仍然是建议、数量 = 账面结余', fb3.lines,
+  [{ type: 'count', itemId: 'it_x', locationId: 'A-1-1', qty: 5 }])
+
 console.log('\n单据解析（送货单文本 → 收货草稿行，匹配与落库行全规则）')
 const pr = Logic.parseReceipt('6204轴承 50\n轴承 6205 x20\n内六角螺丝 M8×30 12盒\n6204\n')
 eq('行解析：行尾数字是数量、规格里的 ×30 不是数量',

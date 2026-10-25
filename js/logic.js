@@ -827,12 +827,29 @@ const Logic = {
 
     const lines = []
     let suggestion = ''
+    const hints = []
     if (detail.reason === '负库存' && detail.balance < 0) {
       const fix = -detail.balance
       lines.push({ type: 'count', itemId: detail.itemId, locationId: detail.locationId, qty: fix })
-      suggestion = `建议按账面补平 ${fix} ${it ? it.unit : ''}（请核对实盘，可在待办箱改数量后批准）`
+      // 成因只做**确定性提示**：从流水/分布里找得到证据的才说，找不到就不猜。
+      // "账面补平"永远是盘点调整 —— 如果成因是漏记收货或串货位，正确动作是补录
+      // 单据/调拨，而不是再记一笔盘盈盘亏。
+      const laterIn = (data.moves || []).some(m =>
+        m.itemId === detail.itemId && m.locationId === detail.locationId &&
+        (m.ts || 0) > (detail.ts || 0) && m.qty > 0)
+      if (laterIn) hints.push('此后该货位有入库 → 疑似先出后补：应按实际单据补录，而非盘点补平')
+      const elsewhere = (dist && dist.dist)
+        ? dist.dist.filter(d => d.loc !== (detail.loc || detail.locationId) && d.qty > 0)
+        : []
+      if (elsewhere.length) hints.push('同款在其他货位仍有库存 → 疑似串货位拣货：应做货位调拨')
+      hints.push('也可能是漏记收货：应补录收货单')
+      suggestion =
+        `账面补平 ${fix} ${it ? it.unit : ''} 只适用于"实盘确有差异"；` +
+        '若成因为先出后补 / 串货 / 漏记收货，应补录对应单据，不要用盘点调整掩盖。' +
+        '（数量可在待办箱改；人批准才落库）'
     } else {
       suggestion = '建议核对原始单据与实盘，确认调整依据后再处理'
+      hints.push('大额盘点调整：先确认是集中盘盈盘亏，还是录入错误')
     }
 
     const timeline = recent.length
@@ -843,9 +860,7 @@ const Logic = {
       `发现：${detail.reason}（${detail.qty > 0 ? '+' : ''}${detail.qty}，结余 ${detail.balance}）\n` +
       `时间线：${timeline}\n` +
       `同款分布：${dist && dist.dist ? dist.dist.map(d => d.loc + ' ' + d.qty).join(' · ') : '无'}\n` +
-      `可能原因：${detail.reason === '负库存'
-        ? '出库数量超过该货位实际在库（先出后补未记账 / 串货位拣货 / 漏记收货）'
-        : '大额盘点调整，需确认是集中盘盈盘亏还是录入错误'}\n` +
+      `成因线索（确定性提示，不是结论）：${hints.join('；')}\n` +
       `建议动作：${suggestion}`
 
     return { report: report, tool_calls: toolCalls, lines: lines.length ? lines : null }
