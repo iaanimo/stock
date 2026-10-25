@@ -347,8 +347,8 @@ function vHome() {
     <a class="card" href="#ship"><span class="ico">📤</span><b>出库拣货</b></a>
     <a class="card" href="#search"><span class="ico">🔍</span><b>库存查询</b></a>
     <a class="card" href="#count"><span class="ico">📋</span><b>盘点</b></a>
-    <a class="card" href="#ask"><span class="ico">🤖</span><b>AI 问答</b><small>问一句查库存 · 只读</small></a>
-    <a class="card" href="#proposals"><span class="ico">📬</span><b>待办箱</b><small>${openCount} 条待办 · AI 起草你批准</small></a>
+    <a class="card" href="#ask"><span class="ico">🤖</span><b>AI 问答</b></a>
+    <a class="card" href="#proposals"><span class="ico">📬</span><b>待办箱</b></a>
   </div>
   <div class="foot">
     <a class="link" href="#overview">库存总览</a>
